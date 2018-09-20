@@ -16,6 +16,7 @@
 
 #include <obs.h>
 #include <util/platform.h>
+#include <util/dstr.h>
 
 #include <assert.h>
 
@@ -530,6 +531,29 @@ static int interrupt_callback(void *data)
 	return stop;
 }
 
+static void parse_options(AVDictionary **opts, const char *options_str)
+{
+	char **opt_tokens = strlist_split(options_str, ' ', false);
+	if (!opt_tokens) {
+		return;
+	}
+
+	for (int i = 0; opt_tokens[i] && opt_tokens[i + 1]; i++) {
+		if (opt_tokens[i][0] == '-') {
+			/* substring to exclude leading dash */
+			const char *opt_key = opt_tokens[i++] + 1;
+			const char *opt_value = opt_tokens[i];
+			av_dict_set(opts, opt_key, opt_value, 0);
+		}
+		else {
+			blog(LOG_INFO,
+				"MP: Unexpected token in playback options: '%s'",
+				opt_tokens[i]);
+		}
+	}
+	strlist_free(opt_tokens);
+}
+
 static bool init_avformat(mp_media_t *m)
 {
 	AVInputFormat *format = NULL;
@@ -545,12 +569,22 @@ static bool init_avformat(mp_media_t *m)
 	if (m->buffering && !m->is_local_file)
 		av_dict_set_int(&opts, "buffer_size", m->buffering, 0);
 
+	parse_options(&opts, m->options_str);
+
 	m->fmt = avformat_alloc_context();
 	m->fmt->interrupt_callback.callback = interrupt_callback;
 	m->fmt->interrupt_callback.opaque = m;
 
 	int ret = avformat_open_input(&m->fmt, m->path, format,
 			opts ? &opts : NULL);
+
+	if (av_dict_count(opts) != 0) {
+		char *unused_opts;
+		av_dict_get_string(opts, &unused_opts, '=', ',');
+		blog(LOG_INFO, "MP: One or more options not found: '%s'",
+				unused_opts);
+		av_free(unused_opts);
+	}
 	av_dict_free(&opts);
 
 	if (ret < 0) {
@@ -665,6 +699,7 @@ static inline bool mp_media_init_internal(mp_media_t *m,
 
 	m->path = info->path ? bstrdup(info->path) : NULL;
 	m->format_name = info->format ? bstrdup(info->format) : NULL;
+	m->options_str = info->options ? bstrdup(info->options) : NULL;
 	m->hw = info->hardware_decoding;
 
 	if (pthread_create(&m->thread, NULL, mp_media_thread_start, m) != 0) {

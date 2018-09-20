@@ -53,6 +53,7 @@ struct mp_media {
 
 	char *path;
 	char *format_name;
+	char *options_str;
 	int buffering;
 	int speed;
 
@@ -107,6 +108,7 @@ struct mp_media_info {
 
 	const char *path;
 	const char *format;
+	const char *options;
 	int buffering;
 	int speed;
 	enum video_range_type force_range;
