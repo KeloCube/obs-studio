@@ -538,11 +538,16 @@ static void parse_options(AVDictionary **opts, const char *options_str)
 		return;
 	}
 
-	for (int i = 0; opt_tokens[i] && opt_tokens[i + 1]; i++) {
+	for (int i = 0; opt_tokens[i]; i++) {
 		if (opt_tokens[i][0] == '-') {
+
 			/* substring to exclude leading dash */
-			const char *opt_key = opt_tokens[i++] + 1;
-			const char *opt_value = opt_tokens[i];
+			const char *opt_key = opt_tokens[i] + 1;
+			const char *opt_value = opt_tokens[i + 1];
+			if (opt_value == NULL || opt_value[0] == '-')
+				opt_value = "true";
+			else
+				i++;
 			av_dict_set(opts, opt_key, opt_value, 0);
 		}
 		else {
@@ -571,6 +576,9 @@ static bool init_avformat(mp_media_t *m)
 
 	parse_options(&opts, m->options_str);
 
+	m->has_video = av_dict_get(opts, "vn", NULL, 0) == NULL;
+	m->has_audio = av_dict_get(opts, "an", NULL, 0) == NULL;
+
 	m->fmt = avformat_alloc_context();
 	m->fmt->interrupt_callback.callback = interrupt_callback;
 	m->fmt->interrupt_callback.opaque = m;
@@ -598,8 +606,10 @@ static bool init_avformat(mp_media_t *m)
 		return false;
 	}
 
-	m->has_video = mp_decode_init(m, AVMEDIA_TYPE_VIDEO, m->hw);
-	m->has_audio = mp_decode_init(m, AVMEDIA_TYPE_AUDIO, m->hw);
+	if (m->has_video)
+		m->has_video = mp_decode_init(m, AVMEDIA_TYPE_VIDEO, m->hw);
+	if (m->has_audio)
+		m->has_audio = mp_decode_init(m, AVMEDIA_TYPE_AUDIO, m->hw);
 
 	if (!m->has_video && !m->has_audio) {
 		blog(LOG_WARNING, "MP: Could not initialize audio or video: "
