@@ -125,11 +125,20 @@ static int mp_media_next_packet(mp_media_t *media)
 
 static inline bool mp_media_ready_to_start(mp_media_t *m)
 {
-	if (m->has_audio && !m->a.eof && !m->a.frame_ready)
+	if (m->low_latency) {
+		if (m->has_audio && (m->a.eof || m->a.frame_ready))
+			return true;
+		if (m->has_video && (m->v.eof || m->v.frame_ready))
+			return true;
 		return false;
-	if (m->has_video && !m->v.eof && !m->v.frame_ready)
-		return false;
-	return true;
+	}
+	else {
+		if (m->has_audio && !(m->a.eof || m->a.frame_ready))
+			return false;
+		if (m->has_video && !(m->v.eof || m->v.frame_ready))
+			return false;
+		return true;
+	}
 }
 
 static inline bool mp_decode_frame(struct mp_decode *d)
@@ -208,6 +217,12 @@ static bool mp_media_prepare_frames(mp_media_t *m)
 			return false;
 		if (m->has_audio && !mp_decode_frame(&m->a))
 			return false;
+		/*bool a_decoded = m->has_video && mp_decode_frame(&m->v);
+		bool v_decoded = m->has_audio && mp_decode_frame(&m->a);
+		if (!(a_decoded || v_decoded))
+			return false;
+		//if (!(a_decoded && v_decoded))
+		//	return false;*/
 	}
 
 	if (m->has_video && m->v.frame_ready && !m->swscale) {
@@ -253,7 +268,8 @@ static inline int64_t mp_media_get_base_pts(mp_media_t *m)
 static inline bool mp_media_can_play_frame(mp_media_t *m,
 		struct mp_decode *d)
 {
-	return d->frame_ready && d->frame_pts <= m->next_pts_ns;
+	return d->frame_ready &&
+			(m->low_latency || d->frame_pts <= m->next_pts_ns);
 }
 
 static void mp_media_next_audio(mp_media_t *m)
@@ -388,9 +404,41 @@ static void mp_media_next_video(mp_media_t *m, bool preload)
 
 static void mp_media_calc_next_ns(mp_media_t *m)
 {
-	int64_t min_next_ns = mp_media_get_next_min_pts(m);
+	if (m->low_latency) {
+		m->next_ns = os_gettime_ns();
+		return;
+		/*bool v_missing = m->has_video && !m->v.eof && !m->v.frame_ready;
+		bool a_missing = m->has_audio && !m->a.eof && !m->a.frame_ready;
 
-	int64_t delta = min_next_ns - m->next_pts_ns;
+		next_pts_ns = m->next_pts_ns;*/
+	}
+	/*if (v_missing || a_missing) {
+		//if (m->next_pts_ns != m->next_ns)
+		//	m->next_pts_ns = m->next_ns;
+		//return;
+		//blog(LOG_INFO, "Missing");
+
+		if (m->v_next_pts && m->a_next_pts) {
+			next_pts_ns = min(m->v_next_pts, m->a_next_pts);
+			m->v_next_pts = 0;
+			m->a_next_pts = 0;
+		}
+		else {
+			if (!v_missing)
+				m->v_next_pts = m->v.frame_pts;
+			if (!a_missing)
+				m->a_next_pts = m->a.next_pts;
+			return;
+		}
+	}
+	else {
+		next_pts_ns
+			blog(LOG_INFO, "Not missing");
+	}*/
+
+	int64_t next_pts_ns = mp_media_get_next_min_pts(m);
+
+	int64_t delta = next_pts_ns - m->next_pts_ns;
 #ifdef _DEBUG
 	assert(delta >= 0);
 #endif
@@ -400,7 +448,7 @@ static void mp_media_calc_next_ns(mp_media_t *m)
 		delta = 0;
 
 	m->next_ns += delta;
-	m->next_pts_ns = min_next_ns;
+	m->next_pts_ns = next_pts_ns;
 }
 
 static bool mp_media_reset(mp_media_t *m)
@@ -734,6 +782,7 @@ bool mp_media_init(mp_media_t *media, const struct mp_media_info *info)
 	media->buffering = info->buffering;
 	media->speed = info->speed;
 	media->is_local_file = info->is_local_file;
+	media->low_latency = info->low_latency;
 
 	if (!info->is_local_file || media->speed < 1 || media->speed > 200)
 		media->speed = 100;

@@ -53,6 +53,7 @@ struct ffmpeg_source {
 	int speed_percent;
 	bool is_looping;
 	bool is_local_file;
+	bool low_latency;
 	bool is_hw_decoding;
 	bool is_clear_on_media_end;
 	bool restart_on_activate;
@@ -71,6 +72,7 @@ static bool is_local_file_modified(obs_properties_t *props,
 			"input_format");
 	obs_property_t *options = obs_properties_get(props, "options");
 	obs_property_t *local_file = obs_properties_get(props, "local_file");
+	obs_property_t *low_latency = obs_properties_get(props, "low_latency");
 	obs_property_t *looping = obs_properties_get(props, "looping");
 	obs_property_t *buffering = obs_properties_get(props, "buffering_mb");
 	obs_property_t *close = obs_properties_get(props, "close_when_inactive");
@@ -79,6 +81,7 @@ static bool is_local_file_modified(obs_properties_t *props,
 	obs_property_set_visible(input, !enabled);
 	obs_property_set_visible(input_format, !enabled);
 	obs_property_set_visible(options, !enabled);
+	obs_property_set_visible(low_latency, !enabled);
 	obs_property_set_visible(buffering, !enabled);
 	obs_property_set_visible(close, enabled);
 	obs_property_set_visible(local_file, enabled);
@@ -92,6 +95,7 @@ static bool is_local_file_modified(obs_properties_t *props,
 static void ffmpeg_source_defaults(obs_data_t *settings)
 {
 	obs_data_set_default_bool(settings, "is_local_file", true);
+	obs_data_set_default_bool(settings, "low_latency", false);
 	obs_data_set_default_bool(settings, "looping", false);
 	obs_data_set_default_bool(settings, "clear_on_media_end", true);
 	obs_data_set_default_bool(settings, "restart_on_activate", true);
@@ -166,6 +170,9 @@ static obs_properties_t *ffmpeg_source_getproperties(void *data)
 
 	obs_properties_add_text(props, "options",
 			obs_module_text("Options"), OBS_TEXT_DEFAULT);
+
+	obs_properties_add_bool(props, "low_latency",
+			obs_module_text("LowLatency"), OBS_TEXT_DEFAULT);
 
 #ifndef __APPLE__
 	obs_properties_add_bool(props, "hw_decode",
@@ -272,7 +279,8 @@ static void ffmpeg_source_open(struct ffmpeg_source *s)
 			.speed = s->speed_percent,
 			.force_range = s->range,
 			.hardware_decoding = s->is_hw_decoding,
-			.is_local_file = s->is_local_file || s->seekable
+			.is_local_file = s->is_local_file || s->seekable,
+			.low_latency = s->low_latency
 		};
 
 		s->media_valid = mp_media_init(&s->media, &info);
@@ -354,6 +362,7 @@ static void ffmpeg_source_update(void *data, obs_data_t *settings)
 	s->buffering_mb = (int)obs_data_get_int(settings, "buffering_mb");
 	s->speed_percent = (int)obs_data_get_int(settings, "speed_percent");
 	s->is_local_file = is_local_file;
+	s->low_latency = obs_data_get_bool(settings, "low_latency");;
 	s->seekable = obs_data_get_bool(settings, "seekable");
 
 	if (s->speed_percent < 1 || s->speed_percent > 200)
